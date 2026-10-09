@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="ws-url" content=""><!-- override with wss://your-domain/ws for production -->
+<title>Greenhouse Guardian</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:      #0f1a0f;
+    --panel:   #152215;
+    --border:  #1e3a1e;
+    --green:   #4caf50;
+    --yellow:  #ffc107;
+    --orange:  #ff9800;
+    --red:     #f44336;
+    --blue:    #2196f3;
+    --text:    #e8f5e9;
+    --muted:   #7a9f7a;
+    --radius:  8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 16px;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 1.3rem; color: var(--green); flex: 1; }
+  .clock { font-size: 1.1rem; font-variant-numeric: tabular-nums; min-width: 90px; }
+  .conn-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--red); flex-shrink: 0;
+    transition: background 0.4s;
+  }
+  .conn-dot.live { background: var(--green); }
+  .speed-btns { display: flex; gap: 6px; }
+  .speed-btns button {
+    background: var(--border); border: 1px solid var(--muted);
+    color: var(--text); border-radius: 4px; padding: 4px 10px;
+    cursor: pointer; font-size: 0.82rem; transition: background 0.2s;
+  }
+  .speed-btns button.active { background: var(--green); color: #000; font-weight: 600; }
+  .wokwi-badge {
+    font-size: 0.75rem; padding: 3px 8px; border-radius: 20px;
+    background: #1a2e4a; color: #64b5f6; border: 1px solid #2a4a6a;
+  }
+  .wokwi-badge.live { background: #1a3a2a; color: var(--green); border-color: var(--green); }
+
+  /* ── Main grid ── */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    grid-template-rows: auto 1fr;
+    gap: 10px;
+    flex: 1;
+  }
+
+  /* ── Zone cards ── */
+  .zones-row {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  .zone-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    transition: border-color 0.4s;
+  }
+  .zone-card.critical { border-color: var(--red); }
+  .zone-card.warning  { border-color: var(--yellow); }
+  .zone-card.good     { border-color: var(--green); }
+  .zone-name { font-size: 0.8rem; color: var(--muted); margin-bottom: 4px; }
+  .zone-moisture {
+    font-size: 2rem; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .zone-moisture.critical { color: var(--red); }
+  .zone-moisture.warning  { color: var(--yellow); }
+  .zone-moisture.good     { color: var(--green); }
+  .moisture-bar {
+    height: 6px; background: var(--border);
+    border-radius: 3px; margin: 6px 0; overflow: hidden;
+  }
+  .moisture-fill {
+    height: 100%; border-radius: 3px;
+    transition: width 0.6s ease, background 0.4s;
+  }
+  .zone-meta { font-size: 0.72rem; color: var(--muted); line-height: 1.6; }
+  .drip-badge {
+    display: inline-block; font-size: 0.68rem; padding: 1px 6px;
+    border-radius: 10px; margin-top: 4px;
+  }
+  .drip-badge.on  { background: #1a3a5a; color: #64b5f6; }
+  .drip-badge.off { background: var(--border); color: var(--muted); }
+  .fault-badge {
+    display: inline-block; font-size: 0.68rem; padding: 1px 6px;
+    border-radius: 10px; background: #3a1a1a; color: var(--red); margin-left: 4px;
+  }
+  .sparkline-wrap { margin-top: 8px; height: 40px; }
+
+  /* ── Left panel: greenhouse map ── */
+  .map-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .panel-title { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  #gh-map { width: 100%; flex: 1; min-height: 220px; }
+
+  /* ── Right column ── */
+  .right-col {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  /* Weather panel */
+  .weather-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+  }
+  .weather-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .w-item { text-align: center; }
+  .w-label { font-size: 0.7rem; color: var(--muted); }
+  .w-value { font-size: 1.4rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .w-value.hot  { color: var(--red); }
+  .w-value.warm { color: var(--orange); }
+  .w-value.ok   { color: var(--green); }
+  .tank-bar-wrap { margin-top: 8px; }
+  .tank-label { font-size: 0.72rem; color: var(--muted); display: flex; justify-content: space-between; }
+  .tank-bar { height: 10px; background: var(--border); border-radius: 5px; overflow: hidden; margin-top: 3px; }
+  .tank-fill { height: 100%; border-radius: 5px; transition: width 0.6s ease, background 0.4s; }
+  .pump-row { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 0.78rem; }
+  .pump-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+  .pump-dot.on { background: var(--blue); box-shadow: 0 0 6px var(--blue); }
+
+  /* Alert feed */
+  .alert-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .alert-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+    max-height: 260px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .alert-item {
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 0.78rem;
+    border-left: 3px solid;
+    animation: slideIn 0.3s ease;
+  }
+  @keyframes slideIn { from { opacity:0; transform:translateX(10px); } to { opacity:1; transform:none; } }
+  .alert-item.critical { background: #2a1010; border-color: var(--red); }
+  .alert-item.warning  { background: #2a1e00; border-color: var(--yellow); }
+  .alert-item.info     { background: #0d1e2a; border-color: var(--blue); }
+  .alert-item.advice   { background: #0d2a1e; border-color: var(--green); }
+  .alert-title  { font-weight: 600; margin-bottom: 2px; }
+  .alert-action { color: var(--muted); margin-top: 2px; font-size: 0.72rem; }
+  .alert-time   { color: var(--muted); font-size: 0.68rem; margin-top: 2px; }
+  .no-alerts { color: var(--muted); font-size: 0.78rem; text-align: center; padding: 20px; }
+
+  /* ── Scoreboard ── */
+  .score-panel {
+    grid-column: 1 / -1;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+  }
+  .score-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.82rem; }
+  .score-table th, .score-table td {
+    padding: 6px 12px; text-align: right; border-bottom: 1px solid var(--border);
+  }
+  .score-table th { color: var(--muted); font-weight: 400; text-align: right; }
+  .score-table th:first-child, .score-table td:first-child { text-align: left; }
+  .score-table .smart-row td:not(:first-child) { color: var(--green); font-weight: 600; }
+  .score-table .timer-row td:not(:first-child) { color: var(--orange); }
+  .saving-tag {
+    display: inline-block; background: #1a3a1a; color: var(--green);
+    border: 1px solid var(--green); border-radius: 12px;
+    padding: 2px 10px; font-size: 0.8rem; margin-left: 8px;
+  }
+
+  /* ── Fault injection panel ── */
+  .fault-panel {
+    grid-column: 1 / -1;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .fault-panel .panel-title { width: 100%; }
+  .fault-btn {
+    border: none; border-radius: 6px; padding: 7px 14px;
+    cursor: pointer; font-size: 0.82rem; font-weight: 500;
+    transition: opacity 0.2s, transform 0.1s;
+  }
+  .fault-btn:hover  { opacity: 0.85; }
+  .fault-btn:active { transform: scale(0.97); }
+  .fault-btn.leak     { background: #b71c1c; color: #fff; }
+  .fault-btn.blocked  { background: #e65100; color: #fff; }
+  .fault-btn.empty    { background: #f57f17; color: #000; }
+  .fault-btn.heatwave { background: #bf360c; color: #fff; }
+  .fault-btn.broken   { background: #37474f; color: #fff; }
+  .fault-btn.clear    { background: var(--green); color: #000; }
+  .fault-btn.demo     { background: #1a237e; color: #fff; border: 1px solid #3949ab; }
+
+  /* ── Robot status ── */
+  .robot-status {
+    font-size: 0.75rem; color: var(--muted);
+    padding: 4px 8px;
+    background: var(--border);
+    border-radius: 4px;
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    .main-grid { grid-template-columns: 1fr; }
+    .zones-row { grid-template-columns: repeat(2, 1fr); }
+    .right-col { grid-column: 1; }
+  }
+  @media (max-width: 550px) {
+    .zones-row { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────────────────────────── -->
+<header>
+  <h1>🌿 Greenhouse Guardian</h1>
+  <span class="clock" id="clock">07:00</span>
+  <span id="day-label" style="font-size:0.78rem;color:var(--muted)">Day 1</span>
+  <div class="speed-btns">
+    <button onclick="setSpeed(1)"   id="spd-1">1×</button>
+    <button onclick="setSpeed(60)"  id="spd-60">60×</button>
+    <button onclick="setSpeed(360)" id="spd-360" class="active">360×</button>
+    <button onclick="setSpeed(720)" id="spd-720">720×</button>
+  </div>
+  <span class="wokwi-badge" id="wokwi-badge">Wokwi: standby</span>
+  <span class="conn-dot" id="conn-dot" title="WebSocket connection"></span>
+</header>
+
+<!-- ── Zones row ──────────────────────────────────────────────────────────── -->
+<div class="zones-row" id="zones-row">
+  <!-- Populated by JS -->
+</div>
+
+<!-- ── Main grid ─────────────────────────────────────────────────────────── -->
+<div class="main-grid">
+
+  <!-- Greenhouse map -->
+  <div class="map-panel">
+    <span class="panel-title">Greenhouse Map — 8×30 m · 4 zones · 6 beds each</span>
+    <svg id="gh-map" viewBox="0 0 600 240" preserveAspectRatio="xMidYMid meet">
+      <!-- Background -->
+      <rect width="600" height="240" rx="8" fill="#0d1a0d" stroke="#1e3a1e" stroke-width="1.5"/>
+      <!-- Zone blocks (4 zones × 6 beds) -->
+      <!-- Populated by JS -->
+    </svg>
+    <div class="robot-status" id="robot-label">🤖 Robot: initialising</div>
+  </div>
+
+  <!-- Right column -->
+  <div class="right-col">
+
+    <!-- Weather panel -->
+    <div class="weather-panel">
+      <span class="panel-title">Environment</span>
+      <div class="weather-grid">
+        <div class="w-item">
+          <div class="w-label">🌡 Temperature</div>
+          <div class="w-value" id="w-temp">—</div>
+        </div>
+        <div class="w-item">
+          <div class="w-label">💧 Humidity</div>
+          <div class="w-value" id="w-hum">—</div>
+        </div>
+        <div class="w-item">
+          <div class="w-label">☀️ Light</div>
+          <div class="w-value" id="w-light">—</div>
+        </div>
+        <div class="w-item">
+          <div class="w-label">🌬 VPD</div>
+          <div class="w-value" id="w-vpd">—</div>
+        </div>
+      </div>
+      <div class="tank-bar-wrap">
+        <div class="tank-label">
+          <span>💧 Water Tank</span>
+          <span id="tank-pct">—</span>
+        </div>
+        <div class="tank-bar"><div class="tank-fill" id="tank-fill" style="width:0%"></div></div>
+      </div>
+      <div class="pump-row">
+        <div class="pump-dot" id="pump-dot"></div>
+        <span id="pump-label">Pump: off</span>
+        <span id="flow-label" style="margin-left:auto;font-size:0.72rem;color:var(--muted)"></span>
+      </div>
+    </div>
+
+    <!-- Alert feed -->
+    <div class="alert-panel">
+      <span class="panel-title">Alerts &amp; Advice</span>
+      <div class="alert-list" id="alert-list">
+        <div class="no-alerts">No active alerts — system nominal ✓</div>
+      </div>
+    </div>
+
+  </div><!-- /right-col -->
+
+</div><!-- /main-grid -->
+
+<!-- ── Scoreboard ────────────────────────────────────────────────────────── -->
+<div class="score-panel">
+  <span class="panel-title">
+    Scoreboard — Smart vs Timer
+    <span id="saving-tag" class="saving-tag" style="display:none"></span>
+  </span>
+  <table class="score-table">
+    <thead>
+      <tr>
+        <th>System</th>
+        <th>Water used (L)</th>
+        <th>Stress hours</th>
+        <th>Wasted (L)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="smart-row">
+        <td>🟢 Smart (Guardian)</td>
+        <td id="s-water">—</td>
+        <td id="s-stress">—</td>
+        <td id="s-waste">—</td>
+      </tr>
+      <tr class="timer-row">
+        <td>🕐 Timer twin</td>
+        <td id="t-water">—</td>
+        <td id="t-stress">—</td>
+        <td id="t-waste">—</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ── Fault injection ────────────────────────────────────────────────────── -->
+<div class="fault-panel">
+  <span class="panel-title">Fault Injection &amp; Demo Controls</span>
+  <button class="fault-btn leak"     onclick="injectFault('leak')">🔴 Trigger Leak</button>
+  <button class="fault-btn blocked"  onclick="injectFault('blocked_line')">🟠 Block Zone 3</button>
+  <button class="fault-btn empty"    onclick="injectFault('empty_tank')">⚠️ Empty Tank</button>
+  <button class="fault-btn heatwave" onclick="injectFault('heatwave')">🌡️ Heatwave</button>
+  <button class="fault-btn broken"   onclick="injectFault('broken_sensor')">❌ Break Sensor</button>
+  <button class="fault-btn clear"    onclick="injectFault('clear')">✅ Clear All</button>
+  <button class="fault-btn demo"     onclick="startDemo()">▶ Auto Demo (3 min)</button>
+</div>
+
+<script>
+// ── Config ──────────────────────────────────────────────────────────────────
+const metaWs = document.querySelector('meta[name="ws-url"]');
+const WS_URL = (metaWs && metaWs.content) ||
+  `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+
+// ── Sparkline charts (one per zone) ─────────────────────────────────────────
+const sparklines = [];
+const SPARKLINE_POINTS = 30;
+
+function makeSparkline(canvasId) {
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return null;
+  return new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: Array(SPARKLINE_POINTS).fill(''),
+      datasets: [{
+        data: Array(SPARKLINE_POINTS).fill(null),
+        borderColor: '#4caf50',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: false,
+        tension: 0.3,
+      }]
+    },
+    options: {
+      responsive: false,
+      animation: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: {
+        x: { display: false },
+        y: { display: false, min: 0, max: 100 }
+      }
+    }
+  });
+}
+
+// ── Zone cards init ──────────────────────────────────────────────────────────
+const ZONE_NAMES = ['Zone 1 — NW', 'Zone 2 — NE', 'Zone 3 — SW', 'Zone 4 — SE'];
+
+function initZoneCards() {
+  const row = document.getElementById('zones-row');
+  row.innerHTML = '';
+  for (let i = 0; i < 4; i++) {
+    row.innerHTML += `
+      <div class="zone-card" id="zc-${i}">
+        <div class="zone-name">${ZONE_NAMES[i]}</div>
+        <div class="zone-moisture good" id="zm-${i}">—%</div>
+        <div class="moisture-bar"><div class="moisture-fill" id="mf-${i}" style="width:0%;background:#4caf50"></div></div>
+        <div class="zone-meta">
+          <span id="zd-${i}">Drip: —</span>
+          <span id="zf-${i}"></span>
+        </div>
+        <div class="sparkline-wrap"><canvas id="spark-${i}" width="200" height="40"></canvas></div>
+      </div>`;
+  }
+  // Init sparklines after DOM insertion
+  for (let i = 0; i < 4; i++) {
+    sparklines[i] = makeSparkline(`spark-${i}`);
+  }
+}
+
+// ── SVG map init ─────────────────────────────────────────────────────────────
+const ZONE_X      = [20, 160, 300, 440];   // x-start per zone
+const ZONE_WIDTH  = 130;
+const BED_H       = 28;
+const BED_GAP     = 4;
+const MAP_PAD_Y   = 16;
+
+function initMap() {
+  const svg = document.getElementById('gh-map');
+  // Remove old dynamic elements
+  svg.querySelectorAll('.dyn').forEach(e => e.remove());
+
+  for (let z = 0; z < 4; z++) {
+    // Zone background rect
+    const zoneRect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    zoneRect.setAttribute('x',  ZONE_X[z]);
+    zoneRect.setAttribute('y',  MAP_PAD_Y);
+    zoneRect.setAttribute('width', ZONE_WIDTH);
+    zoneRect.setAttribute('height', (BED_H + BED_GAP) * 6 - BED_GAP + 4);
+    zoneRect.setAttribute('rx', '4');
+    zoneRect.setAttribute('fill', '#1a2e1a');
+    zoneRect.setAttribute('stroke', '#2a4a2a');
+    zoneRect.setAttribute('stroke-width', '1');
+    zoneRect.setAttribute('id', `zone-bg-${z}`);
+    zoneRect.classList.add('dyn');
+    svg.appendChild(zoneRect);
+
+    // Zone label
+    const label = document.createElementNS('http://www.w3.org/2000/svg','text');
+    label.setAttribute('x', ZONE_X[z] + ZONE_WIDTH / 2);
+    label.setAttribute('y', MAP_PAD_Y - 4);
+    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('fill', '#7a9f7a');
+    label.setAttribute('font-size', '9');
+    label.textContent = `Z${z+1}`;
+    label.classList.add('dyn');
+    svg.appendChild(label);
+
+    // 6 bed rectangles
+    for (let b = 0; b < 6; b++) {
+      const bedRect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+      bedRect.setAttribute('x', ZONE_X[z] + 4);
+      bedRect.setAttribute('y', MAP_PAD_Y + 2 + b * (BED_H + BED_GAP));
+      bedRect.setAttribute('width', ZONE_WIDTH - 8);
+      bedRect.setAttribute('height', BED_H);
+      bedRect.setAttribute('rx', '2');
+      bedRect.setAttribute('fill', '#0f220f');
+      bedRect.setAttribute('id', `bed-${z}-${b}`);
+      bedRect.classList.add('dyn');
+      svg.appendChild(bedRect);
+    }
+  }
+
+  // Robot circle
+  const robotCircle = document.createElementNS('http://www.w3.org/2000/svg','circle');
+  robotCircle.setAttribute('r', '10');
+  robotCircle.setAttribute('fill', '#2196f3');
+  robotCircle.setAttribute('stroke', '#fff');
+  robotCircle.setAttribute('stroke-width', '1.5');
+  robotCircle.setAttribute('id', 'robot-circle');
+  robotCircle.classList.add('dyn');
+  svg.appendChild(robotCircle);
+
+  const robotEmoji = document.createElementNS('http://www.w3.org/2000/svg','text');
+  robotEmoji.setAttribute('text-anchor', 'middle');
+  robotEmoji.setAttribute('dominant-baseline', 'central');
+  robotEmoji.setAttribute('font-size', '11');
+  robotEmoji.setAttribute('id', 'robot-emoji');
+  robotEmoji.textContent = '🤖';
+  robotEmoji.classList.add('dyn');
+  svg.appendChild(robotEmoji);
+}
+
+function updateMap(zones, robot) {
+  for (let z = 0; z < 4; z++) {
+    const m = zones[z].moisture;
+    const col = moistureColor(m, 0.25);
+    for (let b = 0; b < 6; b++) {
+      const bed = document.getElementById(`bed-${z}-${b}`);
+      if (bed) bed.setAttribute('fill', col);
+    }
+    const bg = document.getElementById(`zone-bg-${z}`);
+    if (bg) bg.setAttribute('stroke', moistureStroke(m));
+  }
+
+  // Robot position
+  const pos   = robot.position;           // 0.0–3.0
+  const zone  = Math.min(3, Math.floor(pos));
+  const frac  = pos - zone;
+  const x0    = ZONE_X[zone] + ZONE_WIDTH / 2;
+  const x1    = zone < 3 ? ZONE_X[zone+1] + ZONE_WIDTH / 2 : x0;
+  const rx    = x0 + (x1 - x0) * frac;
+  const ry    = 120;
+  const rc = document.getElementById('robot-circle');
+  const re = document.getElementById('robot-emoji');
+  if (rc) { rc.setAttribute('cx', rx); rc.setAttribute('cy', ry); }
+  if (re) { re.setAttribute('x', rx);  re.setAttribute('y', ry); }
+}
+
+function moistureColor(m, alpha) {
+  if (m < 20) return `rgba(244,67,54,${alpha})`;
+  if (m < 25) return `rgba(255,193,7,${alpha})`;
+  if (m < 40) return `rgba(255,152,0,${alpha})`;
+  return `rgba(76,175,80,${alpha})`;
+}
+function moistureStroke(m) {
+  if (m < 20) return '#f44336';
+  if (m < 25) return '#ffc107';
+  return '#2a4a2a';
+}
+
+// ── Update zone cards ────────────────────────────────────────────────────────
+function updateZones(zones, robot) {
+  for (let i = 0; i < zones.length; i++) {
+    const z  = zones[i];
+    const m  = z.moisture;
+    const cl = m < 20 ? 'critical' : m < 25 ? 'warning' : 'good';
+
+    const card = document.getElementById(`zc-${i}`);
+    if (card) { card.className = `zone-card ${cl}`; }
+
+    const mv = document.getElementById(`zm-${i}`);
+    if (mv) { mv.textContent = `${m.toFixed(0)}%`; mv.className = `zone-moisture ${cl}`; }
+
+    const fill = document.getElementById(`mf-${i}`);
+    if (fill) {
+      fill.style.width = `${m}%`;
+      fill.style.background = cl === 'critical' ? '#f44336' : cl === 'warning' ? '#ffc107' : '#4caf50';
+    }
+
+    const drip = document.getElementById(`zd-${i}`);
+    if (drip) {
+      drip.innerHTML = z.drip_active
+        ? '<span class="drip-badge on">💧 Drip on</span>'
+        : '<span class="drip-badge off">Drip off</span>';
+    }
+
+    const faultEl = document.getElementById(`zf-${i}`);
+    if (faultEl) {
+      faultEl.innerHTML = z.fault
+        ? `<span class="fault-badge">⚠ ${z.fault.replace('_',' ')}</span>`
+        : '';
+    }
+
+    // Sparkline
+    if (sparklines[i]) {
+      const ds = sparklines[i].data.datasets[0];
+      ds.data.push(m);
+      if (ds.data.length > SPARKLINE_POINTS) ds.data.shift();
+      ds.borderColor = cl === 'critical' ? '#f44336' : cl === 'warning' ? '#ffc107' : '#4caf50';
+      sparklines[i].update('none');
+    }
+  }
+}
+
+// ── Update weather panel ──────────────────────────────────────────────────────
+function updateWeather(w, tank, pumpOn, flow) {
+  const tempEl = document.getElementById('w-temp');
+  if (tempEl) {
+    tempEl.textContent = `${w.temp.toFixed(1)}°C`;
+    tempEl.className = 'w-value ' + (w.temp > 32 ? 'hot' : w.temp > 26 ? 'warm' : 'ok');
+  }
+  const humEl = document.getElementById('w-hum');
+  if (humEl) {
+    humEl.textContent = `${w.humidity.toFixed(0)}%`;
+    humEl.className = 'w-value ' + (w.humidity > 85 ? 'hot' : 'ok');
+  }
+  const lightEl = document.getElementById('w-light');
+  if (lightEl) lightEl.textContent = w.light > 0 ? `${Math.round(w.light)} lx` : '🌙 Night';
+  const vpdEl = document.getElementById('w-vpd');
+  if (vpdEl) {
+    vpdEl.textContent = `${w.vpd.toFixed(2)} kPa`;
+    vpdEl.className = 'w-value ' + (w.vpd > 1.5 ? 'hot' : 'ok');
+  }
+
+  const tf = document.getElementById('tank-fill');
+  if (tf) {
+    tf.style.width = `${tank}%`;
+    tf.style.background = tank < 20 ? '#f44336' : tank < 40 ? '#ffc107' : '#2196f3';
+  }
+  const tp = document.getElementById('tank-pct');
+  if (tp) tp.textContent = `${tank.toFixed(0)}%`;
+
+  const pd = document.getElementById('pump-dot');
+  const pl = document.getElementById('pump-label');
+  const fl = document.getElementById('flow-label');
+  if (pd) pd.className = 'pump-dot ' + (pumpOn ? 'on' : '');
+  if (pl) pl.textContent = pumpOn ? 'Pump: running' : 'Pump: off';
+  if (fl) fl.textContent = flow > 0 ? `${(flow * 60).toFixed(1)} L/min` : '';
+}
+
+// ── Update clock ──────────────────────────────────────────────────────────────
+function updateClock(simHour, day) {
+  const h = Math.floor(simHour) % 24;
+  const m = Math.floor((simHour - Math.floor(simHour)) * 60);
+  document.getElementById('clock').textContent =
+    String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+  document.getElementById('day-label').textContent = `Day ${day + 1}`;
+}
+
+// ── Update alert feed ─────────────────────────────────────────────────────────
+let _lastAlertIds = new Set();
+
+function updateAlerts(alerts, tips, history) {
+  const combined = [
+    ...alerts.map(a => ({...a, _type:'detection'})),
+    ...tips.map(t => ({...t, _type:'advice'})),
+  ].sort((a,b) => {
+    const sev = {critical:0, warning:1, info:2};
+    return (sev[a.severity]||2) - (sev[b.severity]||2);
+  });
+
+  const list = document.getElementById('alert-list');
+  if (!list) return;
+
+  if (combined.length === 0) {
+    list.innerHTML = '<div class="no-alerts">No active alerts — system nominal ✓</div>';
+    _lastAlertIds = new Set();
+    return;
+  }
+
+  const currentIds = new Set(combined.map(a => a.id));
+  if (_eqSets(currentIds, _lastAlertIds)) return;   // no change
+  _lastAlertIds = currentIds;
+
+  list.innerHTML = combined.map(a => {
+    const sevClass = a._type === 'advice' ? 'advice' : a.severity;
+    const icon = a.severity === 'critical' ? '🚨'
+               : a.severity === 'warning'  ? '⚠️'
+               : a._type === 'advice'      ? '💡'
+               : 'ℹ️';
+    const t = new Date(a.timestamp * 1000);
+    const ts = t.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    return `
+      <div class="alert-item ${sevClass}">
+        <div class="alert-title">${icon} ${a.title}</div>
+        <div class="alert-action">${a.action}</div>
+        <div class="alert-time">${a.reason}</div>
+      </div>`;
+  }).join('');
+
+  list.scrollTop = 0;
+}
+
+function _eqSets(a, b) {
+  if (a.size !== b.size) return false;
+  for (const v of a) if (!b.has(v)) return false;
+  return true;
+}
+
+// ── Update scoreboard ─────────────────────────────────────────────────────────
+function updateScoreboard(sb) {
+  const s = sb.smart, t = sb.timer;
+  setText('s-water',  s.water_used_l.toFixed(0) + ' L');
+  setText('s-stress', s.stress_hours.toFixed(2) + ' h');
+  setText('s-waste',  s.waste_l.toFixed(1) + ' L');
+  setText('t-water',  t.water_used_l.toFixed(0) + ' L');
+  setText('t-stress', t.stress_hours.toFixed(2) + ' h');
+  setText('t-waste',  t.waste_l.toFixed(1) + ' L');
+
+  const tag = document.getElementById('saving-tag');
+  if (t.water_used_l > 0) {
+    const pct = ((t.water_used_l - s.water_used_l) / t.water_used_l * 100).toFixed(0);
+    if (pct > 0) {
+      tag.textContent = `${pct}% less water`;
+      tag.style.display = 'inline-block';
+    }
+  }
+}
+
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+
+// ── Update robot label ────────────────────────────────────────────────────────
+function updateRobot(robot) {
+  const label = document.getElementById('robot-label');
+  if (!label) return;
+  const stateIcon = {
+    PATROL: '🚶', PROBE: '🔬', SPOT_WATER: '💧', RETURN_TO_BASE: '↩️'
+  }[robot.state] || '🤖';
+  label.textContent = `${stateIcon} Robot: ${robot.action_label}  · Tank: ${robot.water_tank_l.toFixed(0)} L`;
+}
+
+// ── Speed buttons ─────────────────────────────────────────────────────────────
+function setSpeed(s) {
+  fetch(`/speed/${s}`, {method:'POST'});
+  [1,60,360,720].forEach(v => {
+    const btn = document.getElementById(`spd-${v}`);
+    if (btn) btn.classList.toggle('active', v === s);
+  });
+}
+
+// ── Fault injection ────────────────────────────────────────────────────────────
+function injectFault(ft) {
+  fetch(`/fault/${ft}`, {method:'POST'});
+}
+
+// ── Demo ──────────────────────────────────────────────────────────────────────
+function startDemo() {
+  fetch('/demo', {method:'POST'});
+}
+
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+let ws, reconnectTimer;
+
+function connectWS() {
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    document.getElementById('conn-dot').classList.add('live');
+    clearTimeout(reconnectTimer);
+  };
+
+  ws.onclose = () => {
+    document.getElementById('conn-dot').classList.remove('live');
+    reconnectTimer = setTimeout(connectWS, 3000);
+  };
+
+  ws.onmessage = (ev) => {
+    const data = JSON.parse(ev.data);
+    if (data.ping) return;
+
+    requestAnimationFrame(() => {
+      updateClock(data.sim_hour, data.sim_day || 0);
+      updateZones(data.zones, data.robot);
+      updateMap(data.zones, data.robot);
+      updateWeather(data.weather, data.tank_level, data.pump_on, data.pump_flow);
+      updateAlerts(data.alerts || [], data.tips || [], data.history || []);
+      updateScoreboard(data.scoreboard);
+      updateRobot(data.robot);
+
+      // Wokwi badge
+      const wb = document.getElementById('wokwi-badge');
+      if (wb) {
+        if (data.wokwi_active) {
+          wb.textContent = 'Wokwi: 🟢 live';
+          wb.classList.add('live');
+        } else {
+          wb.textContent = 'Wokwi: standby';
+          wb.classList.remove('live');
+        }
+      }
+    });
+  };
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+initZoneCards();
+initMap();
+connectWS();
+</script>
+</body>
+</html>

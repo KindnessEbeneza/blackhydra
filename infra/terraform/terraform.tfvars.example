@@ -1,0 +1,22 @@
+# Copy this file to terraform.tfvars and fill in your values.
+# terraform.tfvars is gitignored — never commit real values.
+
+aws_region   = "us-east-1"
+
+# Your custom domain (e.g. greenhouse.example.com).
+# Leave empty ("") to use the ALB DNS name directly — no ACM cert needed.
+domain_name  = ""
+
+# Email for CloudWatch alarm notifications (CPU > 80%, EC2 status check failed).
+# Leave empty to skip SNS email subscription.
+alert_email  = "you@example.com"
+
+# Name of an existing EC2 key pair in your AWS account (for SSH access).
+# Leave empty to create the instance without SSH key (use SSM Session Manager instead).
+ec2_key_name = ""
+
+# ECR image URI — leave as default; Terraform fills this in from the ECR repo it creates.
+# Override only if you are using a pre-existing repository.
+ecr_image_uri = "greenhouse-guardian:latest"
+
+environment = "production"

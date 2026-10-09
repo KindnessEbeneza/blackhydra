@@ -1,0 +1,175 @@
+name: CI/CD — Greenhouse Guardian
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Prevent concurrent deploys on the same branch
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  AWS_REGION:    us-east-1
+  ECR_REPO_NAME: greenhouse-guardian
+  IMAGE_TAG:     ${{ github.sha }}
+
+###############################################################################
+# Job 1: Test
+###############################################################################
+jobs:
+  test:
+    name: Run Python tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest pytest-asyncio httpx
+
+      - name: Run tests
+        run: pytest backend/tests/ -v --tb=short
+
+###############################################################################
+# Job 2: Build & Deploy (main branch only)
+###############################################################################
+  build-and-deploy:
+    name: Build, push, deploy
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    # OIDC permissions — no static AWS keys stored in GitHub
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── AWS auth via OIDC ─────────────────────────────────────────────────
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region:     ${{ env.AWS_REGION }}
+
+      # ── ECR login ─────────────────────────────────────────────────────────
+      - name: Log in to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ── Build & push Docker image ─────────────────────────────────────────
+      - name: Build and push Docker image
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        run: |
+          IMAGE_URI="$REGISTRY/$ECR_REPO_NAME:$IMAGE_TAG"
+          IMAGE_LATEST="$REGISTRY/$ECR_REPO_NAME:latest"
+
+          docker build \
+            --cache-from "$IMAGE_LATEST" \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            -t "$IMAGE_URI" \
+            -t "$IMAGE_LATEST" \
+            .
+
+          docker push "$IMAGE_URI"
+          docker push "$IMAGE_LATEST"
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+
+      # ── Deploy to EC2 ─────────────────────────────────────────────────────
+      - name: Deploy to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        run: |
+          # Write SSH key
+          echo "$EC2_SSH_KEY" > /tmp/deploy_key
+          chmod 600 /tmp/deploy_key
+
+          ssh -i /tmp/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=30 \
+            ec2-user@"$EC2_HOST" << ENDSSH
+              set -e
+              # Login to ECR on remote
+              aws ecr get-login-password --region ${{ env.AWS_REGION }} \
+                | docker login --username AWS --password-stdin \
+                    ${{ steps.ecr-login.outputs.registry }}
+              # Pull latest image
+              docker pull ${{ env.IMAGE_URI }}
+              # Restart systemd service
+              sudo systemctl restart greenhouse-guardian
+              echo "Deployment complete on EC2"
+          ENDSSH
+
+          rm -f /tmp/deploy_key
+
+      # ── Wait for health check ──────────────────────────────────────────────
+      - name: Wait for health check
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          echo "Waiting for service to be healthy..."
+          for i in $(seq 1 12); do
+            STATUS=$(curl -sf "http://$EC2_HOST:8000/state" -o /dev/null -w "%{http_code}" || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Health check passed (attempt $i)"
+              exit 0
+            fi
+            echo "  Attempt $i: status=$STATUS, retrying in 10s..."
+            sleep 10
+          done
+          echo "❌ Health check failed after 120s"
+          exit 1
+
+      # ── Sync frontend to S3 ───────────────────────────────────────────────
+      - name: Sync frontend to S3
+        run: |
+          S3_BUCKET=$(aws cloudformation describe-stacks \
+            --stack-name greenhouse-guardian 2>/dev/null \
+            | jq -r '.Stacks[0].Outputs[] | select(.OutputKey=="S3BucketName") | .OutputValue' \
+            || echo "${{ secrets.S3_BUCKET_NAME }}")
+
+          aws s3 sync frontend/ "s3://$S3_BUCKET/" \
+            --delete \
+            --cache-control "max-age=300"
+
+          echo "S3_BUCKET=$S3_BUCKET" >> $GITHUB_ENV
+
+      # ── CloudFront invalidation ───────────────────────────────────────────
+      - name: Invalidate CloudFront cache
+        run: |
+          CF_DIST_ID="${{ secrets.CLOUDFRONT_DIST_ID }}"
+          if [ -n "$CF_DIST_ID" ]; then
+            aws cloudfront create-invalidation \
+              --distribution-id "$CF_DIST_ID" \
+              --paths "/*"
+            echo "CloudFront cache invalidated."
+          else
+            echo "CLOUDFRONT_DIST_ID not set — skipping invalidation."
+          fi
+
+      # ── Summary ───────────────────────────────────────────────────────────
+      - name: Deploy summary
+        run: |
+          echo "## 🌿 Greenhouse Guardian deployed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ env.IMAGE_URI }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deployed by | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY

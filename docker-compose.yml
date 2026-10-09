@@ -1,0 +1,29 @@
+version: "3.9"
+
+services:
+  greenhouse:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: greenhouse-guardian:local
+    container_name: greenhouse-guardian
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      # Set to wss://your-domain.com/ws in production
+      - WS_PUBLIC_URL=ws://localhost:8000/ws
+    volumes:
+      # Mount source for live-reload during development
+      # Comment out in production
+      - ./backend:/app/backend:ro
+      - ./frontend:/app/frontend:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/state')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

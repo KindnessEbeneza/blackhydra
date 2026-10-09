@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "author": "Greenhouse Guardian",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-devkit-v1",
+      "id": "esp32",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-dht22",
+      "id": "dht1",
+      "top": -80,
+      "left": 240,
+      "attrs": { "temperature": "22", "humidity": "65" }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot1",
+      "top": 120,
+      "left": -120,
+      "attrs": { "label": "Zone 1 Moisture", "value": "0.55" }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot2",
+      "top": 200,
+      "left": -120,
+      "attrs": { "label": "Zone 2 Moisture", "value": "0.68" }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot3",
+      "top": 280,
+      "left": -120,
+      "attrs": { "label": "Zone 3 Moisture", "value": "0.42" }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot4",
+      "top": 360,
+      "left": -120,
+      "attrs": { "label": "Zone 4 Moisture", "value": "0.61" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led-pump",
+      "top": 120,
+      "left": 320,
+      "attrs": { "color": "blue", "label": "Pump" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led-fault",
+      "top": 180,
+      "left": 320,
+      "attrs": { "color": "red", "label": "Fault" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn-leak",
+      "top": 440,
+      "left": -120,
+      "attrs": { "label": "Leak", "color": "red" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn-blocked",
+      "top": 490,
+      "left": -120,
+      "attrs": { "label": "Blocked", "color": "orange" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn-empty",
+      "top": 540,
+      "left": -120,
+      "attrs": { "label": "Empty Tank", "color": "yellow" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn-heatwave",
+      "top": 590,
+      "left": -120,
+      "attrs": { "label": "Heatwave", "color": "orange" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn-broken",
+      "top": 640,
+      "left": -120,
+      "attrs": { "label": "Broken Sensor", "color": "gray" }
+    }
+  ],
+  "connections": [
+    [ "dht1:VCC",  "esp32:3V3",  "red",    [] ],
+    [ "dht1:GND",  "esp32:GND",  "black",  [] ],
+    [ "dht1:SDA",  "esp32:D4",   "green",  [] ],
+    [ "pot1:VCC",  "esp32:3V3",  "red",    [] ],
+    [ "pot1:GND",  "esp32:GND",  "black",  [] ],
+    [ "pot1:SIG",  "esp32:A0",   "green",  [] ],
+    [ "pot2:VCC",  "esp32:3V3",  "red",    [] ],
+    [ "pot2:GND",  "esp32:GND",  "black",  [] ],
+    [ "pot2:SIG",  "esp32:A3",   "green",  [] ],
+    [ "pot3:VCC",  "esp32:3V3",  "red",    [] ],
+    [ "pot3:GND",  "esp32:GND",  "black",  [] ],
+    [ "pot3:SIG",  "esp32:A6",   "green",  [] ],
+    [ "pot4:VCC",  "esp32:3V3",  "red",    [] ],
+    [ "pot4:GND",  "esp32:GND",  "black",  [] ],
+    [ "pot4:SIG",  "esp32:A7",   "green",  [] ],
+    [ "led-pump:A","esp32:D13",  "blue",   [] ],
+    [ "led-pump:C","esp32:GND",  "black",  [] ],
+    [ "led-fault:A","esp32:D12", "red",    [] ],
+    [ "led-fault:C","esp32:GND", "black",  [] ],
+    [ "btn-leak:1","esp32:D2",   "red",    [] ],
+    [ "btn-leak:2","esp32:GND",  "black",  [] ],
+    [ "btn-blocked:1","esp32:D3","orange", [] ],
+    [ "btn-blocked:2","esp32:GND","black", [] ],
+    [ "btn-empty:1","esp32:D4",  "yellow", [] ],
+    [ "btn-empty:2","esp32:GND", "black",  [] ],
+    [ "btn-heatwave:1","esp32:D5","orange",[] ],
+    [ "btn-heatwave:2","esp32:GND","black",[] ],
+    [ "btn-broken:1","esp32:D6", "gray",   [] ],
+    [ "btn-broken:2","esp32:GND","black",  [] ]
+  ]
+}

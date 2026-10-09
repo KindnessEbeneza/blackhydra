@@ -1,0 +1,10 @@
+[wokwi]
+version = 1
+elf = "greenhouse_sensors.ino.bin"
+firmware = "greenhouse_sensors.ino.bin"
+
+# Serial WebSocket bridge — Wokwi forwards Serial.println() to this URL.
+# Local dev:      ws://localhost:8000/wokwi-serial
+# Production:     wss://your-domain.com/wokwi-serial  (set via env or edit here)
+[serial]
+url = "ws://localhost:8000/wokwi-serial"
